@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>幾何方塊戰場：多人連線 AI 攻防戰</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #1b1e26;
+    color: #eee;
+    font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { font-size: 20px; margin: 0 0 10px; color: #9fd3ff; }
+  #status { margin-bottom: 8px; font-size: 14px; color: #aaa; }
+  #wrap {
+    position: relative;
+    border: 3px solid #444;
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+  }
+  canvas { display: block; background: #f4f4f2; }
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: bold;
+    color: #222;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.6);
+  }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55);
+    color: #fff; font-size: 22px;
+    text-align: center;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #help { margin-top: 10px; font-size: 13px; color: #888; }
+  #training-panel {
+    margin-top: 14px;
+    width: 800px;
+    max-width: 90vw;
+    background: #11141c;
+    border: 1px solid #2a3040;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    color: #7dd3fc;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    justify-content: space-between;
+  }
+  #training-panel span.label { color: #7a8399; margin-right: 4px; }
+  #training-panel span.val { color: #e8f7ff; font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>幾何方塊戰場：多人連線 AI 攻防戰</h1>
+  <div id="status">連線中...</div>
+  <div id="wrap">
+    <canvas id="game" width="800" height="600"></canvas>
+    <div id="hud"></div>
+    <div id="overlay" style="display:none;"></div>
+  </div>
+  <div id="training-panel">🧠 AI 背景線上訓練中... </div>
+  <div id="help">WASD 移動　|　滑鼠左鍵朝游標方向射擊　|　紅色方塊為 AI（由 DQN 即時推論 + 背景執行緒持續訓練）</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const hudEl = document.getElementById('hud');
+const overlayEl = document.getElementById('overlay');
+
+let myId = null;
+let latestState = null;
+let walls = [];
+
+// ---------------- WebSocket 連線 ----------------
+const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+ws.onopen = () => { statusEl.textContent = '已連線，等待伺服器同步資料...'; };
+ws.onclose = () => { statusEl.textContent = '連線已中斷'; };
+ws.onerror = () => { statusEl.textContent = '連線發生錯誤'; };
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'init') {
+    myId = msg.id;
+    walls = msg.walls;
+    statusEl.textContent = `已連線，你的編號：Player ${myId}`;
+  } else if (msg.type === 'full') {
+    statusEl.textContent = '伺服器人數已滿（最多 4 人），請稍後再試';
+    overlayEl.style.display = 'flex';
+    overlayEl.textContent = '房間已滿';
+  } else if (msg.type === 'state') {
+    latestState = msg;
+  }
+};
+
+// ---------------- 輸入處理：本地 WASD ----------------
+const keyState = { w: false, a: false, s: false, d: false };
+
+function sendKeys() {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'keys', ...keyState }));
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k in keyState && !keyState[k]) { keyState[k] = true; sendKeys(); }
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (k in keyState && keyState[k]) { keyState[k] = false; sendKeys(); }
+});
+
+// ---------------- 輸入處理：滑鼠點擊射擊 ----------------
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'shoot', mx, my }));
+  }
+});
+
+// ---------------- 渲染迴圈 ----------------
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 背景格線（輔助視覺，非必要但利於辨識網格地圖）
+  ctx.strokeStyle = '#e2e2df';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+
+  // 黑色矩形牆壁
+  ctx.fillStyle = '#111';
+  for (const w of walls) {
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+  }
+
+  if (latestState) {
+    // 黃色子彈
+    ctx.fillStyle = '#f5c518';
+    for (const b of latestState.bullets) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 紅色 AI 方塊
+    ctx.fillStyle = '#e0483e';
+    for (const ai of latestState.ais) {
+      const half = ai.size / 2;
+      ctx.fillRect(ai.x - half, ai.y - half, ai.size, ai.size);
+      // AI 血條
+      ctx.fillStyle = '#000';
+      ctx.fillRect(ai.x - half, ai.y - half - 7, ai.size, 4);
+      ctx.fillStyle = '#5ee06a';
+      ctx.fillRect(ai.x - half, ai.y - half - 7, ai.size * (ai.hp / 3), 4);
+      ctx.fillStyle = '#e0483e';
+    }
+
+    // 藍色圓形玩家
+    for (const p of latestState.players) {
+      if (!p.alive) {
+        ctx.globalAlpha = 0.25;
+      }
+      ctx.fillStyle = (p.id === myId) ? '#2d6cdf' : '#5a8fe0';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // 玩家編號 & 血量小標籤
+      ctx.fillStyle = '#000';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`P${p.id} ${'♥'.repeat(Math.max(p.hp,0))}`, p.x, p.y - 22);
+    }
+
+    // HUD：存活人數 / 各玩家擊殺分數
+    const killsText = latestState.players
+      .map(p => `P${p.id}${p.id === myId ? '(你)' : ''}: ${p.kills}分${p.alive ? '' : '(陣亡)'}`)
+      .join('　');
+    hudEl.innerHTML = `<span>存活玩家: ${latestState.aliveCount}/${latestState.totalPlayers}</span><span>${killsText}</span>`;
+
+    // AI 線上訓練監控面板：親眼看到背景執行緒正在訓練 DQN
+    const t = latestState.aiTraining;
+    if (t) {
+      document.getElementById('training-panel').innerHTML =
+        `<span><span class="label">背景訓練步數</span><span class="val">${t.trainSteps}</span></span>` +
+        `<span><span class="label">最新 Loss</span><span class="val">${t.latestLoss}</span></span>` +
+        `<span><span class="label">Replay Buffer</span><span class="val">${t.bufferSize}</span></span>` +
+        `<span><span class="label">Epsilon(探索率)</span><span class="val">${t.epsilon}</span></span>` +
+        `<span><span class="label">累積線上決策</span><span class="val">${t.onlineSteps}</span></span>`;
+    }
+
+    // 死亡遮罩
+    const me = latestState.players.find(p => p.id === myId);
+    if (me && !me.alive) {
+      overlayEl.style.display = 'flex';
+      overlayEl.textContent = '你已陣亡 —— 觀戰中';
+    } else {
+      overlayEl.style.display = 'none';
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
