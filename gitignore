@@ -1,5 +1,0 @@
-__pycache__/
-*.pyc
-.venv/
-.DS_Store
-ai_weights.pt
