@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="description" content="NEXUS: CYBERNETIC FRONTIER - browser-based cyberpunk roguelite ARPG." />
+  <title>NEXUS: CYBERNETIC FRONTIER</title>
+  <link rel="stylesheet" href="./css/main.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud" class="hud hidden">
+      <div class="hud-top-left">
+        <div class="stat-bar hp-bar">
+          <div class="stat-fill" id="hp-fill"></div>
+          <span class="stat-label">HP</span>
+        </div>
+        <div class="stat-bar energy-bar">
+          <div class="stat-fill" id="energy-fill"></div>
+          <span class="stat-label">ENERGY</span>
+        </div>
+      </div>
+
+      <div id="minimap" class="minimap panel">MINIMAP</div>
+
+      <div class="hud-bottom">
+        <div class="weapon-slot panel">RUSTED PISTOL</div>
+        <div class="card-slots">
+          <div class="card-slot panel">1</div>
+          <div class="card-slot panel">2</div>
+          <div class="card-slot panel">3</div>
+          <div class="card-slot panel">4</div>
+          <div class="card-slot panel">5</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="debug-overlay" class="debug-overlay hidden"></div>
+
+    <div id="dev-console" class="dev-console hidden">
+      <div id="dev-console-log" class="dev-console-log"></div>
+      <input id="dev-console-input" class="dev-console-input" type="text" autocomplete="off"
+             placeholder="> type a command, try 'help'" />
+    </div>
+
+    <div id="boot-overlay" class="boot-overlay">
+      <div class="boot-logo">NEXUS</div>
+      <div class="boot-sub">CYBERNETIC FRONTIER</div>
+      <div class="boot-hint">CLICK OR PRESS ANY KEY TO START</div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

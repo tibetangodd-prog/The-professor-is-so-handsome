@@ -1,0 +1,10 @@
+{
+  "name": "nexus-cybernetic-frontier",
+  "version": "0.1.0-phase1",
+  "description": "NEXUS: CYBERNETIC FRONTIER - a browser-based cyberpunk roguelite ARPG. Pure front-end, zero backend, zero build step.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -l 8080"
+  }
+}
